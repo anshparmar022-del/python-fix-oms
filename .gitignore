@@ -1,0 +1,15 @@
+# QuickFIX runtime files
+log/
+store/
+
+# SQLite database
+*.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+.venv39/
