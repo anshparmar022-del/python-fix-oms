@@ -1,0 +1,63 @@
+import bisect
+from typing import Optional
+
+class LiquidityBook:
+    def __init__(self, symbol: str):
+        self.symbol = symbol
+        self.bids = []
+        self.asks = []
+
+    def add_order(self, order: dict):
+        # Adds an order to the book with price-time priority
+        if str(order["side"]) == "1":
+            bisect.insort(self.bids, order, key=lambda x: -float(x["price"]))
+        else:
+            bisect.insort(self.asks, order, key=lambda x: float(x["price"]))
+
+    def remove_order(self, order_id: str) -> Optional[dict]:
+        # Removes an order by ID from both sides of the book
+        for side in [self.bids, self.asks]:
+            for i, o in enumerate(side):
+                if o["id"] == order_id:
+                    return side.pop(i)
+        return None
+
+    def best_bid(self) -> float:
+        return float(self.bids[0]["price"]) if self.bids else 0.0
+
+    def best_ask(self) -> float:
+        return float(self.asks[0]["price"]) if self.asks else 0.0
+
+class LiquidityManager:
+    def __init__(self):
+        self.books = {}
+
+    def get_book(self, symbol: str) -> LiquidityBook:
+        # Returns or creates a liquidity book for a symbol
+        if symbol not in self.books:
+            self.books[symbol] = LiquidityBook(symbol)
+        return self.books[symbol]
+
+    def cancel_order(self, order_id: str) -> Optional[dict]:
+        # Scans all books to cancel a specific order
+        for book in self.books.values():
+            removed = book.remove_order(order_id)
+            if removed: return removed
+        return None
+
+    def mass_cancel(self, symbol=None, client_id=None) -> list[dict]:
+        # Performs bulk cancellation based on filters
+        canceled = []
+        target_books = [self.get_book(symbol)] if symbol else self.books.values()
+        for book in target_books:
+            for side in [book.bids, book.asks]:
+                keep = []
+                for o in side:
+                    if not client_id or o.get("client_id") == client_id:
+                        canceled.append(o)
+                    else:
+                        keep.append(o)
+                side[:] = keep
+        return canceled
+
+liquidity_manager = LiquidityManager()
