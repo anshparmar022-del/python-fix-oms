@@ -113,6 +113,7 @@ class OMSApp(fix.Application):
             for m in matches: self._process_fill(m, sym, sessionID)
 
             if tif == "3":
+                tr = self.order_tracker.get(order_id)
                 if tr and tr["status"] not in ("2", "4"):
                     engine.cancel_order(order_id)
                     tr["status"] = "4"
