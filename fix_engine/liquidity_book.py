@@ -8,11 +8,13 @@ class LiquidityBook:
         self.asks = []
 
     def add_order(self, order: dict):
-        # Adds an order to the book with price-time priority
+        # Adds an order to the book with price-time priority (Python 3.9 compatible)
         if str(order["side"]) == "1":
-            bisect.insort(self.bids, order, key=lambda x: -float(x["price"]))
+            self.bids.append(order)
+            self.bids.sort(key=lambda x: -float(x["price"]))
         else:
-            bisect.insort(self.asks, order, key=lambda x: float(x["price"]))
+            self.asks.append(order)
+            self.asks.sort(key=lambda x: float(x["price"]))
 
     def remove_order(self, order_id: str) -> Optional[dict]:
         # Removes an order by ID from both sides of the book

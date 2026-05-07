@@ -9,8 +9,9 @@ A production-grade FIX 4.4 Order Management System built in Python. This system 
 - **Pure FIX 4.4 Protocol**: Industry-standard communication for New Orders (35=D), Cancels (35=F), and Replaces (35=G).
 - **Multi-Client Support**: Simultaneously handles connections from `CLIENT1`, `CLIENT2`, and `QFIXMESSENGER`.
 - **Pre-Trade Risk Engine**: Enforces quantity, notional, and position limits, plus **Fat Finger** price protection.
-- **Matching Engine**: Price-time priority (FIFO) execution with support for partial fills.
+- **Matching Engine**: Price-time priority (FIFO) execution with support for partial fills and Time-In-Force (IOC/FOK).
 - **Position & P&L Tracking**: Real-time calculation of net positions and realized P&L after every fill.
+- **Smart Reporting**: Filtered position reporting (active balances only) to optimize message flow and network buffers.
 - **Market Data Snapshot**: Maintains live BBO (Best Bid/Offer), VWAP, volume, and daily High/Low.
 - **Persistence**: Full audit trail of orders and executions stored in a local SQLite database.
 
@@ -36,8 +37,6 @@ fix_oms_final_build/
 │   └── fix_mapper.py               ← FIX message field extraction
 ├── scripts/
 │   └── view_positions.py           ← Terminal utility to monitor live P&L
-├── log/                            ← FIX session logs (auto-created)
-└── store/                          ← FIX message store (auto-created)
 ```
 
 ---
@@ -101,10 +100,16 @@ Risk Engine Check (Qty, Price, Notional, Fat Finger)
                               ↓
                      Matching Engine processes order
                      ↓ [Match Found]       ↓ [No Match]
-               35=8 FILL sent         Order queued in book
-               Position updated       (Wait for counterpart)
-               Market Data updated
+                35=8 FILL sent         Order queued in book
+                Position updated       (Wait for counterpart)
+                Market Data updated
 ```
+
+> [!NOTE]
+> **Sequential Integrity**: The system guarantees that a "New Order ACK" always precedes a "Fill" report, ensuring true institutional protocol compliance for all downstream consumers.
+> **Time-In-Force**: The engine fully respects Day, IOC, and FOK instructions, dropping orders or partial fills immediately upon constraint violation.
+> **Smart Position Reporting**: Only non-zero balance symbols are pushed to clients, drastically reducing network noise during high-volume sessions.
+
 
 ---
 
@@ -134,7 +139,7 @@ The matching engine follows **Price-Time Priority (FIFO)**:
 
 ## 📊 Database Schema
 
-The system uses **SQLite** for persistence. You can query `oms_data.db` directly or use `scripts/view_positions.py`.
+The system uses **SQLite** for persistence. You can query the database directly or use `scripts/view_positions.py`.
 
 | Table | Purpose |
 |---|---|

@@ -34,6 +34,17 @@ class OrderManager:
         with self._lock, sqlite3.connect(self.db_path) as conn:
             conn.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
 
+    def replace_order(self, old_id, new_id, qty, price):
+        # Updates an order in the database after a replacement
+        with self._lock, sqlite3.connect(self.db_path) as conn:
+            conn.execute("UPDATE orders SET id=?, qty=?, price=?, status='REPLACED' WHERE id=?", (new_id, qty, price, old_id))
+
+    def get_position(self, client_id, symbol):
+        # Returns current position for a client/symbol
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute("SELECT * FROM positions WHERE client_id=? AND symbol=?", (client_id, symbol)).fetchone()
+
     def update_fill(self, order_id, cum_qty, avg_px, status, fill_qty, symbol, side, client_id):
         # Records a fill and updates order/position state
         with self._lock, sqlite3.connect(self.db_path) as conn:

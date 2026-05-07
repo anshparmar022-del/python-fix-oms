@@ -98,15 +98,14 @@ class OMSApp(fix.Application):
                 self._send_report(order_id, 0, 0, sym, side, "8", 0, text=reason, sessionID=sessionID)
                 return
 
-            self.order_tracker[order_id] = {"cum_qty": 0.0, "total_qty": qty, "symbol": sym, "side": side, "client_id": client_id, "session": sessionID}
+            self.order_tracker[order_id] = {"cum_qty": 0.0, "total_qty": qty, "symbol": sym, "side": side, "client_id": client_id, "session": sessionID, "status": "0"}
             manager.add_order({"id": order_id, "symbol": sym, "side": side, "qty": qty, "price": px, "client_id": client_id, "leaves_qty": qty})
             self._send_report(order_id, 0, 0, sym, side, "0", 0)
-
+            
             order_data = {"id": order_id, "symbol": sym, "side": side, "qty": qty, "price": px, "client_id": client_id, "timestamp": datetime.now().isoformat(), "tif": tif}
             if tif == "4" and sum(m["qty"] for m in engine.match_order(order_data, dry_run=True)) < qty:
+                self.order_tracker[order_id]["status"] = "4"
                 self._send_report(order_id, 0, 0, sym, side, "4", 0, text="FOK: Insufficient Liquidity", sessionID=sessionID)
-                self.order_tracker.pop(order_id, None)
-                manager.update_status(order_id, "4")
                 return
 
             matches = engine.match_order(order_data)
@@ -114,9 +113,9 @@ class OMSApp(fix.Application):
             for m in matches: self._process_fill(m, sym, sessionID)
 
             if tif == "3":
-                tr = self.order_tracker.get(order_id)
-                if tr and tr["cum_qty"] < tr["total_qty"]:
+                if tr and tr["status"] not in ("2", "4"):
                     engine.cancel_order(order_id)
+                    tr["status"] = "4"
                     self._send_report(order_id, tr["cum_qty"], 0, sym, side, "4", 0, text="IOC: Remaining Cancelled", sessionID=sessionID)
                     manager.update_status(order_id, "4")
                     self._update_bbo(sym)
@@ -128,10 +127,11 @@ class OMSApp(fix.Application):
             data = FixMapper.extract_cancel(message)
             oid, nid, sym = data["orig_clord_id"], data["clord_id"], data["symbol"]
             tr = self.order_tracker.get(oid)
-            if tr and tr["cum_qty"] >= tr["total_qty"]:
+            if tr and tr["status"] in ("2", "4"):
                 self._send_cancel_reject(nid, oid, "Too late to cancel", sessionID)
                 return
             if engine.cancel_order(oid):
+                if tr: tr["status"] = "4"
                 self._send_report(oid, tr["cum_qty"] if tr else 0.0, 0, sym, tr["side"] if tr else data["side"], "4", 0, sessionID=sessionID)
                 manager.update_status(oid, "4")
                 self._update_bbo(sym)
@@ -146,6 +146,7 @@ class OMSApp(fix.Application):
             canceled = engine.mass_cancel(symbol=sym, client_id=cid)
             for o in canceled:
                 oid, tr = o["id"], self.order_tracker.get(o["id"], {})
+                if tr: tr["status"] = "4"
                 self._send_report(oid, tr.get("cum_qty", 0.0), 0, o["symbol"], o["side"], "4", 0, sessionID=sessionID)
                 manager.update_status(oid, "4")
             if sym: self._update_bbo(sym)
@@ -164,13 +165,13 @@ class OMSApp(fix.Application):
             data = FixMapper.extract_replace(message)
             oid, nid, qty, px, sym, side = data["orig_clord_id"], data["clord_id"], float(data["qty"]), float(data["price"]), data["symbol"], data["side"]
             tr = self.order_tracker.get(oid)
-            if tr and tr["cum_qty"] > 0:
+            if tr and tr["status"] in ("2", "4"):
                 self._send_cancel_reject(nid, oid, "Too late to replace", sessionID)
                 return
             if engine.cancel_order(oid):
                 manager.replace_order(oid, nid, qty, px)
                 old = self.order_tracker.pop(oid, {})
-                self.order_tracker[nid] = {"cum_qty": 0.0, "total_qty": qty, "symbol": sym, "side": side, "client_id": old.get("client_id"), "session": sessionID}
+                self.order_tracker[nid] = {"cum_qty": 0.0, "total_qty": qty, "symbol": sym, "side": side, "client_id": old.get("client_id"), "session": sessionID, "status": "5"}
                 od = {"id": nid, "symbol": sym, "side": side, "qty": qty, "price": px, "client_id": old.get("client_id"), "timestamp": datetime.now().isoformat()}
                 self._update_bbo(sym)
                 self._send_report(nid, 0, px, sym, side, "5", 0, orig_clord_id=oid)
@@ -179,24 +180,50 @@ class OMSApp(fix.Application):
         except Exception as e: logger.exception("_on_replace_request failed: %s", e)
 
     def _on_position_request(self, message, sessionID):
-        # Handles RequestForPositions (35=AN)
+        # Handles RequestForPositions (35=AN) with individual reports and small delay for test tool stability
         try:
             cid, req_id_f = self._get_client_id(message, sessionID), fix.StringField(710)
             req_id = req_id_f.getString() if message.isSetField(req_id_f) and message.getField(req_id_f) else "0"
-            rep = fix.Message()
-            rep.getHeader().setField(fix.MsgType("AP"))
-            rep.setField(fix.StringField(710, req_id))
-            rep.setField(fix.StringField(715, str(uuid.uuid4())))
-            rep.setField(fix.StringField(1, cid))
-            for p in manager.get_all_positions(cid):
-                grp = fix.Group(702, 55)
-                grp.setField(fix.Symbol(p["symbol"]))
-                grp.setField(fix.FloatField(704, max(float(p["net_qty"]), 0.0)))
-                grp.setField(fix.FloatField(705, abs(min(float(p["net_qty"]), 0.0))))
-                grp.setField(fix.FloatField(730, float(p.get("avg_cost", 0.0))))
-                grp.setField(fix.StringField(58, f"RealizedPnL={float(p.get('realized_pnl', 0.0)):.2f}"))
-                rep.addGroup(grp)
-            fix.Session.sendToTarget(rep, sessionID)
+            positions = manager.get_all_positions(cid)
+            
+            # Filter for non-zero positions to keep reports clean and avoid buffer-clogging
+            active_positions = [p for p in positions if float(p["net_qty"]) != 0]
+            
+            def send_rep(p=None, total=1):
+                r = fix44.PositionReport()
+                r.setField(fix.PosReqID(req_id))
+                r.setField(fix.PosMaintRptID(str(uuid.uuid4())))
+                r.setField(fix.Account(cid))
+                r.setField(fix.IntField(581, 1)) 
+                r.setField(fix.IntField(728, 0)) 
+                r.setField(fix.ClearingBusinessDate(datetime.now().strftime("%Y%m%d")))
+                r.setField(fix.DoubleField(730, float(p["avg_cost"]) if p else 0.0))
+                r.setField(fix.DoubleField(734, 0.0))
+                r.setField(fix.IntField(731, 1)) 
+                r.setField(fix.IntField(453, 0)) 
+                r.setField(fix.IntField(753, 0))
+                
+                if p:
+                    r.setField(fix.Symbol(p["symbol"]))
+                    r.setField(fix.TotalNumPosReports(total))
+                    grp = fix44.PositionReport.NoPositions()
+                    grp.setField(fix.PosType(fix.PosType_TRANSACTION_QUANTITY))
+                    grp.setField(fix.LongQty(max(float(p["net_qty"]), 0.0)))
+                    grp.setField(fix.ShortQty(abs(min(float(p["net_qty"]), 0.0))))
+                    r.addGroup(grp)
+                    r.setField(fix.Text(f"RealizedPnL={float(p['realized_pnl']):.2f}"))
+                else:
+                    r.setField(fix.TotalNumPosReports(1))
+                    r.setField(fix.IntField(702, 0))
+                    r.setField(fix.Text("No active positions found"))
+                
+                fix.Session.sendToTarget(r, sessionID)
+
+            if not active_positions:
+                send_rep()
+            else:
+                for p in active_positions:
+                    send_rep(p, len(active_positions))
         except Exception as e: logger.exception("_on_position_request failed: %s", e)
 
     def _process_fill(self, m: dict, sym, sessionID):
@@ -209,6 +236,7 @@ class OMSApp(fix.Application):
             self.order_tracker[mid]["cum_qty"] += fq
             cum, total = self.order_tracker[mid]["cum_qty"], self.order_tracker[mid]["total_qty"]
             st = "2" if cum >= total else "1"
+            self.order_tracker[mid]["status"] = st
             self._send_report(mid, cum, fp, sym, side, st, fq, sessionID=sessionID)
             manager.update_fill(mid, cum, fp, st, fill_qty=fq, symbol=sym, side=side, client_id=self.order_tracker[mid].get("client_id"))
             bid, ask = engine.best_bid_ask(sym)
@@ -216,8 +244,12 @@ class OMSApp(fix.Application):
             print(f"✅ [FILL] {'FILLED' if st == '2' else 'PARTIAL'} | id={mid} qty={fq}", flush=True)
 
     def _get_client_id(self, message, sessionID) -> str:
-        s = fix.SenderCompID()
-        return s.getValue() if message.getHeader().isSetField(s) and message.getHeader().getField(s) else sessionID.getTargetCompID().getValue()
+        # Prefers Account (Tag 1) for tracking, falls back to SenderCompID
+        acc = fix.Account()
+        if message.isSetField(acc):
+            message.getField(acc)
+            return acc.getValue()
+        return sessionID.getTargetCompID().getValue()
 
     def _update_bbo(self, symbol):
         bid, ask = engine.best_bid_ask(symbol)
