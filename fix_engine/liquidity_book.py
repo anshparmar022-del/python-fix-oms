@@ -1,8 +1,10 @@
 import bisect
 from typing import Optional
 
+
 class LiquidityBook:
     def __init__(self, symbol: str):
+        # Initializes an empty order book for a specific symbol
         self.symbol = symbol
         self.bids = []
         self.asks = []
@@ -25,13 +27,17 @@ class LiquidityBook:
         return None
 
     def best_bid(self) -> float:
+        # Returns the highest bid price currently in the book
         return float(self.bids[0]["price"]) if self.bids else 0.0
 
     def best_ask(self) -> float:
+        # Returns the lowest ask price currently in the book
         return float(self.asks[0]["price"]) if self.asks else 0.0
+
 
 class LiquidityManager:
     def __init__(self):
+        # Initializes the manager to track multiple symbol books
         self.books = {}
 
     def get_book(self, symbol: str) -> LiquidityBook:
@@ -44,7 +50,8 @@ class LiquidityManager:
         # Scans all books to cancel a specific order
         for book in self.books.values():
             removed = book.remove_order(order_id)
-            if removed: return removed
+            if removed:
+                return removed
         return None
 
     def mass_cancel(self, symbol=None, client_id=None) -> list[dict]:
@@ -61,5 +68,6 @@ class LiquidityManager:
                         keep.append(o)
                 side[:] = keep
         return canceled
+
 
 liquidity_manager = LiquidityManager()

@@ -17,6 +17,14 @@ A production-grade FIX 4.4 Order Management System built in Python. This system 
 
 ---
 
+## ⚡ High-Performance Architecture
+
+- **LMAX-Inspired Single Writer**: Decouples QuickFIX C++ networking threads from the Python execution environment using a nanosecond lock-free `queue.Queue`. A dedicated single-writer thread handles all matching and persistence, completely eliminating database lock contention.
+- **Write-Ahead Logging (WAL)**: The SQLite database operates in WAL mode with `synchronous = FULL`, enabling high-concurrency read/writes while guaranteeing absolute durability for institutional transaction integrity.
+- **Deterministic Shutdown**: Implements a 'Poison Pill' sentinel pattern to guarantee the matching engine strictly drains the queue and shuts down cleanly without hanging or losing in-flight trades.
+
+---
+
 ## 🏗️ Project Structure
 
 ```
@@ -122,7 +130,7 @@ Every order is validated against institutional-grade risk limits defined in `cor
 | Max Quantity | 10,000 | Prevents accidentally large orders |
 | Max Notional | $10,000,000 | Prevents high-value exposure |
 | Fat Finger | 10% Deviation | Rejects orders too far from current market price |
-| Symbol Whitelist | Active | Only allows trades for approved symbols (AAPL, MSFT, etc.) |
+| Symbol Whitelist | Active | Only allows trades for approved symbols (AAPL, MSFT, EXP1, MASS, etc.) |
 | Position Limit | 500,000 | Limits net exposure per symbol per client |
 
 ---
@@ -163,4 +171,5 @@ This will display a professional terminal dashboard showing your Live Positions,
 ## 🛠️ Dependencies
 
 - **quickfix==1.15.1**: Core FIX protocol engine.
+- **black==25.11.0**: Code formatting enforcing PEP-8 "human-readable" standard.
 - (Standard Python libraries used for all other logic to keep the system lean).
