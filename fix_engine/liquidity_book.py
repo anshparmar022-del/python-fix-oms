@@ -7,15 +7,21 @@ class LiquidityBook:
         self.symbol = symbol
         self.bids = []
         self.asks = []
+        self._seq = 0
 
     def add_order(self, order: dict):
-        # Adds an order to the book with price-time priority (Python 3.9 compatible)
+        # Assign a sequence number to ensure FIFO priority at the same price
+        order["_seq"] = self._seq
+        self._seq += 1
+
         if str(order["side"]) == "1":
             self.bids.append(order)
-            self.bids.sort(key=lambda x: -float(x["price"]))
+            # Sort by Price DESC (highest first), then _seq ASC (oldest first)
+            self.bids.sort(key=lambda x: (-float(x["price"]), x["_seq"]))
         else:
             self.asks.append(order)
-            self.asks.sort(key=lambda x: float(x["price"]))
+            # Sort by Price ASC (lowest first), then _seq ASC (oldest first)
+            self.asks.sort(key=lambda x: (float(x["price"]), x["_seq"]))
 
     def remove_order(self, order_id: str) -> Optional[dict]:
         # Removes an order by ID from both sides of the book

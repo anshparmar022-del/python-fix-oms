@@ -46,8 +46,8 @@ class RiskEngine:
             )
             if ref and abs(p - ref) / ref > limits["PRICE_DEVIATION_PCT"]:
                 return False, "Fat Finger: Price deviates >10% from market"
-        except:
-            pass
+        except Exception as e:
+            logger.warning("Fat-finger check skipped: %s", e)
 
         if side and client_id:
             from core.order_manager import manager
