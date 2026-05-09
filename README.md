@@ -171,5 +171,3 @@ This will display a professional terminal dashboard showing your Live Positions,
 ## 🛠️ Dependencies
 
 - **quickfix==1.15.1**: Core FIX protocol engine.
-- **black==25.11.0**: Code formatting enforcing PEP-8 "human-readable" standard.
-- (Standard Python libraries used for all other logic to keep the system lean).
