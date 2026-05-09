@@ -130,7 +130,6 @@ Every order is validated against institutional-grade risk limits defined in `cor
 | Max Quantity | 10,000 | Prevents accidentally large orders |
 | Max Notional | $10,000,000 | Prevents high-value exposure |
 | Fat Finger | 10% Deviation | Rejects orders too far from current market price |
-| Symbol Whitelist | Active | Only allows trades for approved symbols (AAPL, MSFT, EXP1, MASS, etc.) |
 | Position Limit | 500,000 | Limits net exposure per symbol per client |
 
 ---
