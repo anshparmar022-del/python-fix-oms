@@ -28,11 +28,13 @@ A production-grade FIX 4.4 Order Management System built in Python. This system 
 ## 🏗️ Project Structure
 
 ```
-fix_oms_final_build/
+python-fix-oms/
 ├── run_oms.py                      ← Entry point — starts the FIX acceptor
 ├── requirements.txt                ← Project dependencies
 ├── config/
 │   ├── oms.cfg                     ← FIX session configuration (Port 5001)
+│   ├── client.cfg                  ← Initiator config for CLIENT1
+│   ├── client2.cfg                 ← Initiator config for CLIENT2
 │   └── FIX44.XML                   ← FIX 4.4 Data Dictionary
 ├── core/
 │   ├── order_manager.py            ← SQLite persistence and position tracking
