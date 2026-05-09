@@ -13,18 +13,6 @@ class RiskEngine:
             "MIN_PRICE": 0.0001,
             "MAX_PRICE": 999999.0,
             "PRICE_DEVIATION_PCT": 0.10,
-            "ALLOWED_SYMBOLS": {
-                "AAPL",
-                "MSFT",
-                "GOOG",
-                "RELIANCE",
-                "NVDA",
-                "FILLTEST",
-                "PARTIAL",
-                "TSLA",
-                "EXP1",
-                "MASS",
-            },
         }
 
     def validate_order(
@@ -32,8 +20,6 @@ class RiskEngine:
     ) -> tuple[bool, str]:
         # Validates order parameters against institutional risk limits
         q, p = float(qty), float(price)
-        if symbol not in self.limits["ALLOWED_SYMBOLS"]:
-            return False, "Symbol not allowed"
         if q <= 0 or q > self.limits["MAX_QTY"]:
             return False, "Invalid quantity"
         if p < self.limits["MIN_PRICE"] or p > self.limits["MAX_PRICE"]:
