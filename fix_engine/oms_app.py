@@ -25,7 +25,6 @@ class OMSApp(fix.Application):
         self.order_tracker = {}
         self.sessions = {}
 
-        # V2 Architecture: Queue Bridge
         self.order_queue = queue.Queue()
         self.worker = threading.Thread(target=self._worker_loop, daemon=True)
         self.worker.start()

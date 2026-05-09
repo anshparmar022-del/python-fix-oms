@@ -93,11 +93,7 @@ class OrderManager:
             self.conn.execute(
                 "INSERT INTO executions VALUES (?,?,?,?,?,?,?,?)",
                 (
-                    (
-                        str(uuid.uuid4())
-                        if "uuid" in globals()
-                        else str(datetime.now().timestamp())
-                    ),
+                    str(uuid.uuid4()),
                     order_id,
                     client_id,
                     symbol,
