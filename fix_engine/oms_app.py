@@ -516,7 +516,7 @@ class OMSApp(fix.Application):
             er = fix44.ExecutionReport()
             er.setField(fix.ClOrdID(str(clord_id))), er.setField(
                 fix.OrderID(str(clord_id))
-            ), er.setField(fix.ExecID(str(int(time.time() * 1000)))), er.setField(
+            ), er.setField(fix.ExecID(str(uuid.uuid4()))), er.setField(
                 fix.Symbol(str(sym))
             ), er.setField(
                 fix.Side(str(side))

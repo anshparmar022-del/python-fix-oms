@@ -38,15 +38,15 @@ class MatchingEngine:
                     (
                         new_order["id"],
                         maker["id"],
-                        new_order.get("client_id", "K"),
-                        maker.get("client_id", "K"),
+                        new_order.get("client_id", "UNKNOWN"),
+                        maker.get("client_id", "UNKNOWN"),
                     )
                     if side == "1"
                     else (
                         maker["id"],
                         new_order["id"],
-                        maker.get("client_id", "K"),
-                        new_order.get("client_id", "K"),
+                        maker.get("client_id", "UNKNOWN"),
+                        new_order.get("client_id", "UNKNOWN"),
                     )
                 )
 

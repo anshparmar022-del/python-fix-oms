@@ -179,5 +179,11 @@ class OrderManager:
                 "SELECT * FROM positions WHERE client_id = ?", (client_id,)
             ).fetchall()
 
+    def get_all_symbols(self):
+        # Returns a list of all distinct symbols currently in the orders table
+        with self._lock:
+            rows = self.conn.execute("SELECT DISTINCT symbol FROM orders").fetchall()
+            return [row["symbol"] for row in rows]
+
 
 manager = OrderManager()
