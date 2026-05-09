@@ -2,29 +2,39 @@ import logging
 
 logger = logging.getLogger("OMS_SYSTEM")
 
+# Default institutional risk limits applied to all clients
+DEFAULT_LIMITS = {
+    "MAX_QTY": 10000,
+    "MAX_POSITION_QTY": 500000,
+    "MAX_NOTIONAL": 10000000,
+    "MIN_PRICE": 0.0001,
+    "MAX_PRICE": 999999.0,
+    "PRICE_DEVIATION_PCT": 0.10,
+}
+
+# Override limits per client — add any SenderCompID here to apply tighter or looser limits
+CLIENT_LIMITS = {
+    # Example: tighter limits for CLIENT2
+    # "CLIENT2": {
+    #     "MAX_QTY": 500,
+    #     "MAX_NOTIONAL": 1_000_000,
+    # }
+}
+
 
 class RiskEngine:
-    def __init__(self):
-        # Configuration for pre-trade risk limits
-        self.limits = {
-            "MAX_QTY": 10000,
-            "MAX_POSITION_QTY": 500000,
-            "MAX_NOTIONAL": 10000000,
-            "MIN_PRICE": 0.0001,
-            "MAX_PRICE": 999999.0,
-            "PRICE_DEVIATION_PCT": 0.10,
-        }
-
     def validate_order(
         self, symbol: str, qty: float, price: float, side=None, client_id=None
     ) -> tuple[bool, str]:
-        # Validates order parameters against institutional risk limits
+        # Merge default limits with any per-client overrides
+        limits = {**DEFAULT_LIMITS, **CLIENT_LIMITS.get(client_id or "", {})}
         q, p = float(qty), float(price)
-        if q <= 0 or q > self.limits["MAX_QTY"]:
+
+        if q <= 0 or q > limits["MAX_QTY"]:
             return False, "Invalid quantity"
-        if p < self.limits["MIN_PRICE"] or p > self.limits["MAX_PRICE"]:
+        if p < limits["MIN_PRICE"] or p > limits["MAX_PRICE"]:
             return False, "Invalid price"
-        if q * p > self.limits["MAX_NOTIONAL"]:
+        if q * p > limits["MAX_NOTIONAL"]:
             return False, "Notional limit exceeded"
 
         try:
@@ -34,8 +44,8 @@ class RiskEngine:
             ref = (
                 (b + a) / 2 if b > 0 and a > 0 else b if b > 0 else a if a > 0 else None
             )
-            if ref and abs(p - ref) / ref > self.limits["PRICE_DEVIATION_PCT"]:
-                return False, f"Fat Finger: Price deviates >10% from market"
+            if ref and abs(p - ref) / ref > limits["PRICE_DEVIATION_PCT"]:
+                return False, "Fat Finger: Price deviates >10% from market"
         except:
             pass
 
@@ -48,11 +58,9 @@ class RiskEngine:
                 else None
             )
             curr = float(pos["net_qty"]) if pos else 0.0
-            if (
-                abs(curr + (q if str(side) == "1" else -q))
-                > self.limits["MAX_POSITION_QTY"]
-            ):
+            if abs(curr + (q if str(side) == "1" else -q)) > limits["MAX_POSITION_QTY"]:
                 return False, "Position limit exceeded"
+
         return True, "PASS"
 
 

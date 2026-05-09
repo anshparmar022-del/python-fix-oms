@@ -63,14 +63,15 @@ python run_oms.py
 
 Upon startup, the terminal will display the active modules:
 ```
-  🚀 FIX OMS — Institutional Order Management System
-  ────────────────────────────────────────────────────────────────────────────
-  💎 Instance      : OMS-PRODUCTION-SRV-1
-  🌐 Connectivity  : FIX.4.4 | Port 5001
-  🏦 Multi-Client  : ENABLED (CLIENT1, CLIENT2, QFIXMESSENGER)
-  🛡️  Risk Engine  : ACTIVE
-  📈 Matching      : LiquidityBook-Symbol-Routing
+  FIX OMS — Institutional Order Management System
+  Instance      : OMS-PRODUCTION-SRV-1
+  Connectivity  : FIX.4.4 | Port 5001
+  Multi-Client  : ENABLED (CLIENT1, CLIENT2, QFIXMESSENGER)
+  Risk Engine  : ACTIVE
+  Matching      : LiquidityBook-Symbol-Routing
 ```
+
+> **Adding a new client:** Add a new `[SESSION]` block to `config/oms.cfg` with the desired `TargetCompID`. No code changes required. A ready-to-use initiator config is provided at `config/client.cfg`.
 
 ---
 
@@ -155,6 +156,9 @@ The system uses **SQLite** for persistence. You can query the database directly 
 | `executions` | Audit trail of every individual fill event |
 | `market_data` | Live snapshot of symbol statistics (BBO, VWAP, High/Low) |
 
+> [!WARNING]
+> The in-memory order book resets on every OMS restart. Active orders from a previous session will still appear in the database with `NEW` or `PARTIALLY_FILLED` status, but the matching engine will not be aware of them until they are re-submitted. Plan for this in any production deployment.
+
 ---
 
 ## 🔍 Monitoring
@@ -164,6 +168,31 @@ To monitor your trading activity in real-time without a FIX client, run:
 python scripts/view_positions.py
 ```
 This will display a professional terminal dashboard showing your Live Positions, Market Data, and Recent Executions.
+
+---
+
+## 🏷️ FIX Tag Reference
+
+Common tags used throughout the system:
+
+| Tag | Name | Values |
+|---|---|---|
+| 35 | MsgType | D=New Order, F=Cancel, G=Replace, q=MassCancel, 8=ExecReport, 9=CancelReject, r=MassCancelReport, AN=PositionRequest, AP=PositionReport |
+| 11 | ClOrdID | Unique order ID assigned by the client |
+| 41 | OrigClOrdID | The ClOrdID of the order being cancelled or replaced |
+| 49 | SenderCompID | Who sent the message (e.g. CLIENT1) |
+| 54 | Side | 1=Buy, 2=Sell |
+| 55 | Symbol | Instrument ticker (e.g. AAPL) |
+| 38 | OrderQty | Number of shares |
+| 44 | Price | Limit price |
+| 59 | TimeInForce | 0=Day, 3=IOC, 4=FOK |
+| 39 | OrdStatus | 0=New, 1=PartialFill, 2=Filled, 4=Canceled, 5=Replaced, 8=Rejected |
+| 150 | ExecType | 0=New, F=Trade, 4=Canceled, 5=Replaced, 8=Rejected |
+| 14 | CumQty | Total quantity filled so far |
+| 151 | LeavesQty | Quantity still open |
+| 6 | AvgPx | Average fill price |
+| 58 | Text | Reject reason or informational message |
+| 533 | TotalAffectedOrders | Number of orders cancelled in a MassCancel |
 
 ---
 

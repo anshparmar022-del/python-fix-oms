@@ -34,6 +34,13 @@ class LiquidityBook:
         # Returns the lowest ask price currently in the book
         return float(self.asks[0]["price"]) if self.asks else 0.0
 
+    def depth(self) -> dict:
+        # Returns a full snapshot of resting bids and asks — useful for debugging
+        return {
+            "bids": [(o["id"], o["price"], o["qty"]) for o in self.bids],
+            "asks": [(o["id"], o["price"], o["qty"]) for o in self.asks],
+        }
+
 
 class LiquidityManager:
     def __init__(self):

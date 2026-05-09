@@ -35,7 +35,7 @@ if __name__ == "__main__":
 
     setts = fix.SessionSettings("config/oms.cfg")
     acceptor = fix.SocketAcceptor(
-        oms_app, fix.MemoryStoreFactory(), setts, fix.FileLogFactory(setts)
+        oms_app, fix.FileStoreFactory(setts), setts, fix.FileLogFactory(setts)
     )
     acceptor.start()
 
