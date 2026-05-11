@@ -83,6 +83,10 @@ class OMSApp(fix.Application):
             label = "Logout Received"
         elif mt == fix.MsgType_TestRequest:
             label = "Test Request ACK"
+        elif mt == fix.MsgType_Reject:
+            # 35=3: Session-Level Reject — log as WARNING so it is never missed
+            logger.warning("⚠️  [SESSION REJECT] %s", raw)
+            return
         print(f"📥 [ADMIN] {label.ljust(15)} | {raw}", flush=True)
 
     def toApp(self, message, sessionID):
