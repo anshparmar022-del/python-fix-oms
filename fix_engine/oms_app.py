@@ -186,6 +186,7 @@ class OMSApp(fix.Application):
                 "client_id": client_id,
                 "session": sessionID,
                 "status": "0",
+                "parties": data.get("parties", []),  # Stored for echoing back in ExecReports
             }
             manager.add_order(
                 {
@@ -312,29 +313,25 @@ class OMSApp(fix.Application):
             rep = fix.Message()
             rep.getHeader().setField(fix.MsgType("r"))
 
-            # Extract Original ClOrdID if present
+            # ClOrdID (11) — echo back the request's ClOrdID
             clord_f = fix.ClOrdID()
             clord = FixMapper.get_field(message, clord_f)
-            if clord:
-                rep.setField(fix.StringField(11, clord))
-            else:
-                rep.setField(fix.StringField(11, "UNKNOWN"))
+            rep.setField(fix.ClOrdID(clord if clord else "UNKNOWN"))
 
             # OrderID (37) is mandatory for MassCancelReport
-            rep.setField(fix.StringField(37, "NONE"))
+            rep.setField(fix.OrderID("NONE"))
 
-            # MassCancelRequestType (530)
+            # MassCancelRequestType (530) — echo the type sent by the client
             req_type_f = fix.MassCancelRequestType()
             req_type = (
                 message.getField(req_type_f).getString()
                 if message.isSetField(req_type_f)
                 else "7"
             )
-
-            rep.setField(fix.StringField(530, req_type))
-            rep.setField(fix.StringField(531, "1" if sym else "7"))
-            rep.setField(fix.IntField(533, len(canceled)))
-            rep.setField(fix.StringField(58, f"Canceled {len(canceled)} orders"))
+            rep.setField(fix.MassCancelRequestType(req_type))
+            rep.setField(fix.MassCancelResponse("1" if sym else "7"))
+            rep.setField(fix.TotalAffectedOrders(len(canceled)))
+            rep.setField(fix.Text(f"Canceled {len(canceled)} orders"))
             fix.Session.sendToTarget(rep, sessionID)
         except Exception as e:
             logger.exception("_on_mass_cancel_request failed: %s", e)
@@ -554,6 +551,16 @@ class OMSApp(fix.Application):
                 er.setField(fix.OrigClOrdID(str(orig_clord_id)))
             if text:
                 er.setField(fix.Text(str(text)))
+            # Echo party IDs from original order back to client (FIX protocol compliance)
+            for party in tr.get("parties", []):
+                grp = fix44.ExecutionReport.NoPartyIDs()
+                if party.get("id"):
+                    grp.setField(fix.PartyID(str(party["id"])))
+                if party.get("source"):
+                    grp.setField(fix.PartyIDSource(str(party["source"])))
+                if party.get("role") is not None:
+                    grp.setField(fix.PartyRole(int(party["role"])))
+                er.addGroup(grp)
             fix.Session.sendToTarget(er, target)
             label = {
                 "0": "ACK (NEW)",
