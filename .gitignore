@@ -4,6 +4,13 @@ store/
 
 # SQLite database
 *.db
+*.db-*
+
+# Python distributions and wheels
+*.whl
+dist/
+build/
+*.egg-info/
 
 # Python cache
 __pycache__/

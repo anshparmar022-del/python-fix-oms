@@ -86,7 +86,6 @@ class OMSApp(fix.Application):
         elif mt == fix.MsgType_Reject:
             # 35=3: Session-Level Reject — log as WARNING so it is never missed
             logger.warning("⚠️  [SESSION REJECT] %s", raw)
-            return
         print(f"📥 [ADMIN] {label.ljust(15)} | {raw}", flush=True)
 
     def toApp(self, message, sessionID):
