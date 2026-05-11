@@ -310,8 +310,7 @@ class OMSApp(fix.Application):
                 self._update_bbo(sym)
             else:
                 [self._update_bbo(s) for s in manager.get_all_symbols()]
-            rep = fix.Message()
-            rep.getHeader().setField(fix.MsgType("r"))
+            rep = fix44.OrderMassCancelReport()
 
             # ClOrdID (11) — echo back the request's ClOrdID
             clord_f = fix.ClOrdID()
