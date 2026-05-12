@@ -124,7 +124,7 @@ The system uses **SQLite** with WAL mode for high-performance persistence.
 | `market_data` | Live snapshot of symbol statistics (BBO, VWAP, High/Low) |
 
 > [!NOTE]
-> **Performance Choice**: This system avoids heavy ORMs like SQLAlchemy. Raw SQL + WAL mode and **Recursive Locks (RLock)** provide high-performance thread safety.
+> **Performance Choice**: This system avoids heavy ORMs like SQLAlchemy. Raw SQL + WAL mode, **Recursive Locks (RLock)**, and **Order Dataclass Mapping** provide high-performance thread safety and type-safe data handling.
 
 ---
 

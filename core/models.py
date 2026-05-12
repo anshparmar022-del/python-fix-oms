@@ -31,7 +31,7 @@ class OrderStateMachine:
     TRANSITIONS = {
         OrderStatus.PENDING.value: [OrderStatus.NEW.value, OrderStatus.REJECTED.value],
         OrderStatus.NEW.value: [OrderStatus.PARTIALLY_FILLED.value, OrderStatus.FILLED.value, OrderStatus.CANCELED.value, OrderStatus.REPLACED.value],
-        OrderStatus.PARTIALLY_FILLED.value: [OrderStatus.PARTIALLY_FILLED.value, OrderStatus.FILLED.value, OrderStatus.CANCELED.value],
+        OrderStatus.PARTIALLY_FILLED.value: [OrderStatus.PARTIALLY_FILLED.value, OrderStatus.FILLED.value, OrderStatus.CANCELED.value, OrderStatus.REPLACED.value],
         OrderStatus.FILLED.value: [],
         OrderStatus.CANCELED.value: [],
         OrderStatus.REPLACED.value: [OrderStatus.PARTIALLY_FILLED.value, OrderStatus.FILLED.value, OrderStatus.CANCELED.value, OrderStatus.REPLACED.value],

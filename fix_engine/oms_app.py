@@ -215,18 +215,21 @@ class OMSApp(fix.Application):
                 and sum(m["qty"] for m in engine.match_order(order_data, dry_run=True))
                 < qty
             ):
-                self.order_tracker[order_id]["status"] = OrderStatus.CANCELED.value
-                self._send_report(
-                    order_id,
-                    0,
-                    0,
-                    sym,
-                    side,
-                    OrderStatus.CANCELED.value,
-                    0,
-                    text="FOK: Insufficient Liquidity",
-                    sessionID=sessionID,
-                )
+                current_state = self.order_tracker[order_id]["status"]
+                next_state = OrderStatus.CANCELED.value
+                if OrderStateMachine.can_transition(current_state, next_state):
+                    self.order_tracker[order_id]["status"] = next_state
+                    self._send_report(
+                        order_id,
+                        0,
+                        0,
+                        sym,
+                        side,
+                        next_state,
+                        0,
+                        text="FOK: Insufficient Liquidity",
+                        sessionID=sessionID,
+                    )
                 return
 
             matches = engine.match_order(order_data)
@@ -374,6 +377,7 @@ class OMSApp(fix.Application):
                     "client_id": old.get("client_id"),
                     "session": sessionID,
                     "status": OrderStatus.REPLACED.value,
+                    "parties": old.get("parties", []),
                 }
                 od = {
                     "id": nid,

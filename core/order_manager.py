@@ -3,6 +3,7 @@ import threading
 from datetime import datetime
 import uuid
 from core.position_service import PositionService
+from core.models import OrderStatus, Order
 
 
 class OrderManager:
@@ -52,12 +53,26 @@ class OrderManager:
                 ),
             )
 
-    def get_order(self, order_id):
-        # Retrieves an order from the database by its ClOrdID
+    def get_order(self, order_id) -> Order:
+        # Retrieves an order from the database and maps it to the Order dataclass
         with self._lock:
-            return self.conn.execute(
+            row = self.conn.execute(
                 "SELECT * FROM orders WHERE id = ?", (order_id,)
             ).fetchone()
+            if row:
+                return Order(
+                    id=row["id"],
+                    symbol=row["symbol"],
+                    side=row["side"],
+                    qty=float(row["qty"]),
+                    price=float(row["price"]),
+                    client_id=row["client_id"],
+                    status=OrderStatus(row["status"]),
+                    filled_qty=float(row["filled_qty"]),
+                    avg_price=float(row["avg_price"]),
+                    leaves_qty=float(row["leaves_qty"]),
+                )
+            return None
 
     def update_status(self, order_id, status):
         # Updates the status of an existing order
@@ -70,8 +85,8 @@ class OrderManager:
         # Updates an order's properties and ID after a successful cancel-replace
         with self._lock, self.conn:
             self.conn.execute(
-                "UPDATE orders SET id=?, qty=?, price=?, status='REPLACED' WHERE id=?",
-                (new_id, qty, price, old_id),
+                "UPDATE orders SET id=?, qty=?, price=?, status=? WHERE id=?",
+                (new_id, qty, price, OrderStatus.REPLACED.value, old_id),
             )
 
     def get_position(self, client_id, symbol):
