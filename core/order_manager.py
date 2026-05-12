@@ -2,13 +2,14 @@ import sqlite3
 import threading
 from datetime import datetime
 import uuid
+from core.position_service import PositionService
 
 
 class OrderManager:
     def __init__(self, db_path="oms_data.db"):
         # Initializes the OrderManager with a persistent SQLite connection
         self.db_path = db_path
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self._init_db()
@@ -42,7 +43,7 @@ class OrderManager:
                     order["side"],
                     order["qty"],
                     order["price"],
-                    order.get("status", "NEW"),
+                    order.get("status", "0"),  # Default to '0' (New) if not provided
                     order.get("filled_qty", 0),
                     order.get("avg_price", 0),
                     order.get("leaves_qty", order["qty"]),
@@ -103,38 +104,22 @@ class OrderManager:
                     datetime.now().isoformat(),
                 ),
             )
-            self._update_position(client_id, symbol, side, fill_qty, avg_px)
-
-    def _update_position(self, client_id, symbol, side, qty, price):
-        # Calculates and updates P&L and net quantity for a client's position
-        pos = self.conn.execute(
-            "SELECT * FROM positions WHERE client_id=? AND symbol=?",
-            (client_id, symbol),
-        ).fetchone()
-        cur_qty, cur_cost, cur_pnl = (
-            (pos["net_qty"], pos["avg_cost"], pos["realized_pnl"])
-            if pos
-            else (0.0, 0.0, 0.0)
-        )
-        trade_qty = qty if str(side) == "1" else -qty
-        new_qty = cur_qty + trade_qty
-        new_cost, new_pnl = cur_cost, cur_pnl
-        if cur_qty * trade_qty >= 0:
-            if new_qty != 0:
-                new_cost = (cur_qty * cur_cost + trade_qty * price) / new_qty
-        else:
-            closed_qty = min(abs(cur_qty), abs(trade_qty))
-            new_pnl += closed_qty * (
-                price - cur_cost if cur_qty > 0 else cur_cost - price
+            # Use PositionService for math
+            pos = self.get_position(client_id, symbol)
+            new_pos_data = PositionService.calculate_new_position(pos, side, fill_qty, avg_px)
+            
+            self.conn.execute(
+                "INSERT OR REPLACE INTO positions VALUES (?,?,?,?,?,?)",
+                (
+                    client_id,
+                    symbol,
+                    new_pos_data["net_qty"],
+                    new_pos_data["avg_cost"],
+                    new_pos_data["realized_pnl"],
+                    new_pos_data["updated_at"],
+                ),
             )
-            if new_qty != 0:
-                new_cost = price if abs(trade_qty) > abs(cur_qty) else cur_cost
-            else:
-                new_cost = 0.0
-        self.conn.execute(
-            "INSERT OR REPLACE INTO positions VALUES (?,?,?,?,?,?)",
-            (client_id, symbol, new_qty, new_cost, new_pnl, datetime.now().isoformat()),
-        )
+
 
     def update_market_data(self, symbol, qty, price, bid, ask):
         # Updates global market statistics (volume, vwap, high, low) for a symbol

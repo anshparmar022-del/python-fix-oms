@@ -11,7 +11,7 @@ from core.order_manager import manager
 from fix_engine.matching_engine import engine
 from core.risk_engine import risk_engine
 from fix_engine.fix_mapper import FixMapper
-from core.models import OrderStateMachine
+from core.models import OrderStateMachine, OrderStatus
 
 logger = logging.getLogger("OMS_SYSTEM")
 
@@ -132,7 +132,7 @@ class OMSApp(fix.Application):
                     self._on_replace_request(message, sessionID)
                 elif mt == fix.MsgType_OrderMassCancelRequest:
                     self._on_mass_cancel_request(message, sessionID)
-                elif mt == "AN":
+                elif mt == fix.MsgType_RequestForPositions:
                     self._on_position_request(message, sessionID)
             except Exception as e:
                 logger.exception("_worker_loop failed: %s", e)
@@ -149,7 +149,7 @@ class OMSApp(fix.Application):
                 data["side"],
             )
             client_id = self._get_client_id(message, sessionID)
-            tif = FixMapper.get_field(message, fix.TimeInForce()) or "0"
+            tif = FixMapper.get_field(message, fix.TimeInForce()) or fix.TimeInForce_DAY
 
             print(
                 f"📋 [ORDER] New | id={order_id} sym={sym} side={side} qty={qty} px={px}",
@@ -164,7 +164,7 @@ class OMSApp(fix.Application):
                     0,
                     sym,
                     side,
-                    "8",
+                    OrderStatus.REJECTED.value,
                     0,
                     text="Duplicate ClOrdID",
                     sessionID=sessionID,
@@ -173,7 +173,7 @@ class OMSApp(fix.Application):
             is_valid, reason = risk_engine.validate_order(sym, qty, px, side, client_id)
             if not is_valid:
                 self._send_report(
-                    order_id, 0, 0, sym, side, "8", 0, text=reason, sessionID=sessionID
+                    order_id, 0, 0, sym, side, OrderStatus.REJECTED.value, 0, text=reason, sessionID=sessionID
                 )
                 return
 
@@ -184,7 +184,7 @@ class OMSApp(fix.Application):
                 "side": side,
                 "client_id": client_id,
                 "session": sessionID,
-                "status": "0",
+                "status": OrderStatus.NEW.value,
                 "parties": data.get("parties", []),  # Stored for echoing back in ExecReports
             }
             manager.add_order(
@@ -198,7 +198,7 @@ class OMSApp(fix.Application):
                     "leaves_qty": qty,
                 }
             )
-            self._send_report(order_id, 0, 0, sym, side, "0", 0)
+            self._send_report(order_id, 0, 0, sym, side, OrderStatus.NEW.value, 0)
 
             order_data = {
                 "id": order_id,
@@ -211,18 +211,18 @@ class OMSApp(fix.Application):
                 "tif": tif,
             }
             if (
-                tif == "4"
+                tif == fix.TimeInForce_FILL_OR_KILL
                 and sum(m["qty"] for m in engine.match_order(order_data, dry_run=True))
                 < qty
             ):
-                self.order_tracker[order_id]["status"] = "4"
+                self.order_tracker[order_id]["status"] = OrderStatus.CANCELED.value
                 self._send_report(
                     order_id,
                     0,
                     0,
                     sym,
                     side,
-                    "4",
+                    OrderStatus.CANCELED.value,
                     0,
                     text="FOK: Insufficient Liquidity",
                     sessionID=sessionID,
@@ -234,24 +234,29 @@ class OMSApp(fix.Application):
             for m in matches:
                 self._process_fill(m, sym, sessionID)
 
-            if tif == "3":
+            if tif == fix.TimeInForce_IMMEDIATE_OR_CANCEL:
                 tr = self.order_tracker.get(order_id)
                 if tr and not OrderStateMachine.is_terminal(tr["status"]):
                     engine.cancel_order(order_id)
-                    tr["status"] = "4"
-                    self._send_report(
-                        order_id,
-                        tr["cum_qty"],
-                        0,
-                        sym,
-                        side,
-                        "4",
-                        0,
-                        text="IOC: Remaining Cancelled",
-                        sessionID=sessionID,
-                    )
-                    manager.update_status(order_id, "4")
-                    self._update_bbo(sym)
+                    
+                    next_state = OrderStatus.CANCELED.value
+                    if OrderStateMachine.can_transition(tr["status"], next_state):
+                        tr["status"] = next_state
+                        self._send_report(
+                            order_id,
+                            tr["cum_qty"],
+                            0,
+                            sym,
+                            side,
+                            next_state,
+                            0,
+                            text="IOC: Remaining Cancelled",
+                            sessionID=sessionID,
+                        )
+                        manager.update_status(order_id, next_state)
+                        self._update_bbo(sym)
+                    else:
+                        logger.warning("IOC: Invalid state transition for %s", order_id)
         except Exception as e:
             logger.exception("_on_new_order failed: %s", e)
 
@@ -266,18 +271,24 @@ class OMSApp(fix.Application):
                 return
             if engine.cancel_order(oid):
                 if tr:
-                    tr["status"] = "4"
+                    next_state = OrderStatus.CANCELED.value
+                    if OrderStateMachine.can_transition(tr["status"], next_state):
+                        tr["status"] = next_state
+                        manager.update_status(oid, next_state)
+                    else:
+                        self._send_cancel_reject(nid, oid, f"Invalid state transition from {tr['status']} to {next_state}", sessionID)
+                        return
+
                 self._send_report(
                     oid,
                     tr["cum_qty"] if tr else 0.0,
                     0,
                     sym,
                     tr["side"] if tr else data["side"],
-                    "4",
+                    OrderStatus.CANCELED.value,
                     0,
                     sessionID=sessionID,
                 )
-                manager.update_status(oid, "4")
                 self._update_bbo(sym)
             else:
                 self._send_cancel_reject(nid, oid, "Unknown Order", sessionID)
@@ -292,19 +303,21 @@ class OMSApp(fix.Application):
             canceled = engine.mass_cancel(symbol=sym, client_id=cid)
             for o in canceled:
                 oid, tr = o["id"], self.order_tracker.get(o["id"], {})
-                if tr:
-                    tr["status"] = "4"
+                next_state = OrderStatus.CANCELED.value
+                if tr and OrderStateMachine.can_transition(tr["status"], next_state):
+                    tr["status"] = next_state
+                    manager.update_status(oid, next_state)
+                
                 self._send_report(
                     oid,
                     tr.get("cum_qty", 0.0),
                     0,
                     o["symbol"],
                     o["side"],
-                    "4",
+                    next_state,
                     0,
                     sessionID=sessionID,
                 )
-                manager.update_status(oid, "4")
             if sym:
                 self._update_bbo(sym)
             else:
@@ -327,7 +340,7 @@ class OMSApp(fix.Application):
                 else "7"
             )
             rep.setField(fix.MassCancelRequestType(req_type))
-            rep.setField(fix.MassCancelResponse("1" if sym else "7"))
+            rep.setField(fix.MassCancelResponse(fix.MassCancelResponse_CANCEL_ORDERS_FOR_A_SECURITY if sym else fix.MassCancelResponse_CANCEL_ALL_ORDERS))
             rep.setField(fix.TotalAffectedOrders(len(canceled)))
             rep.setField(fix.Text(f"Canceled {len(canceled)} orders"))
             fix.Session.sendToTarget(rep, sessionID)
@@ -360,7 +373,7 @@ class OMSApp(fix.Application):
                     "side": side,
                     "client_id": old.get("client_id"),
                     "session": sessionID,
-                    "status": "5",
+                    "status": OrderStatus.REPLACED.value,
                 }
                 od = {
                     "id": nid,
@@ -372,7 +385,7 @@ class OMSApp(fix.Application):
                     "timestamp": datetime.now().isoformat(),
                 }
                 self._update_bbo(sym)
-                self._send_report(nid, 0, px, sym, side, "5", 0, orig_clord_id=oid)
+                self._send_report(nid, 0, px, sym, side, OrderStatus.REPLACED.value, 0, orig_clord_id=oid)
                 for m in engine.match_order(od):
                     self._process_fill(m, sym, sessionID)
             else:
@@ -383,14 +396,10 @@ class OMSApp(fix.Application):
     def _on_position_request(self, message, sessionID):
         # Handles RequestForPositions (35=AN) with individual reports and small delay for test tool stability
         try:
-            cid, req_id_f = self._get_client_id(message, sessionID), fix.StringField(
-                710
-            )
-            req_id = (
-                req_id_f.getString()
-                if message.isSetField(req_id_f) and message.getField(req_id_f)
-                else "0"
-            )
+            cid, req_id_f = self._get_client_id(message, sessionID), fix.PosReqID()
+            if message.isSetField(req_id_f):
+                message.getField(req_id_f)
+            req_id = req_id_f.getValue() if req_id_f.getValue() else "0"
             positions = manager.get_all_positions(cid)
 
             # Filter for non-zero positions to keep reports clean and avoid buffer-clogging
@@ -401,14 +410,14 @@ class OMSApp(fix.Application):
                 r.setField(fix.PosReqID(req_id))
                 r.setField(fix.PosMaintRptID(str(uuid.uuid4())))
                 r.setField(fix.Account(cid))
-                r.setField(fix.IntField(581, 1))
-                r.setField(fix.IntField(728, 0))
+                r.setField(fix.AccountType(fix.AccountType_ACCOUNT_IS_CARRIED_ON_CUSTOMER_SIDE_OF_BOOKS))
+                r.setField(fix.PosReqResult(fix.PosReqResult_VALID_REQUEST))
                 r.setField(fix.ClearingBusinessDate(datetime.now().strftime("%Y%m%d")))
-                r.setField(fix.DoubleField(730, float(p["avg_cost"]) if p else 0.0))
-                r.setField(fix.DoubleField(734, 0.0))
-                r.setField(fix.IntField(731, 1))
-                r.setField(fix.IntField(453, 0))
-                r.setField(fix.IntField(753, 0))
+                r.setField(fix.SettlPrice(float(p["avg_cost"]) if p else 0.0))
+                r.setField(fix.PriorSettlPrice(0.0))
+                r.setField(fix.SettlPriceType(fix.SettlPriceType_FINAL))
+                r.setField(fix.NoPartyIDs(0))
+                r.setField(fix.NoPosAmt(0))
 
                 if p:
                     r.setField(fix.Symbol(p["symbol"]))
@@ -421,7 +430,7 @@ class OMSApp(fix.Application):
                     r.setField(fix.Text(f"RealizedPnL={float(p['realized_pnl']):.2f}"))
                 else:
                     r.setField(fix.TotalNumPosReports(1))
-                    r.setField(fix.IntField(702, 0))
+                    r.setField(fix.NoPositions(0))
                     r.setField(fix.Text("No active positions found"))
 
                 fix.Session.sendToTarget(r, sessionID)
@@ -456,23 +465,28 @@ class OMSApp(fix.Application):
                 self.order_tracker[mid]["cum_qty"],
                 self.order_tracker[mid]["total_qty"],
             )
-            st = "2" if cum >= total else "1"
-            self.order_tracker[mid]["status"] = st
-            self._send_report(mid, cum, fp, sym, side, st, fq, sessionID=sessionID)
-            manager.update_fill(
-                mid,
-                cum,
-                fp,
-                st,
-                fill_qty=fq,
-                symbol=sym,
-                side=side,
-                client_id=self.order_tracker[mid].get("client_id"),
-            )
+            next_state = OrderStatus.FILLED.value if cum >= total else OrderStatus.PARTIALLY_FILLED.value
+            
+            current_state = self.order_tracker[mid].get("status", OrderStatus.NEW.value)
+            if OrderStateMachine.can_transition(current_state, next_state):
+                self.order_tracker[mid]["status"] = next_state
+                self._send_report(mid, cum, fp, sym, side, next_state, fq, sessionID=sessionID)
+                manager.update_fill(
+                    mid,
+                    cum,
+                    fp,
+                    next_state,
+                    fill_qty=fq,
+                    symbol=sym,
+                    side=side,
+                    client_id=self.order_tracker[mid].get("client_id"),
+                )
+            else:
+                logger.warning("Fill: Invalid state transition from %s to %s for %s", current_state, next_state, mid)
             bid, ask = engine.best_bid_ask(sym)
             manager.update_market_data(sym, fq, fp, bid, ask)
             print(
-                f"✅ [FILL] {'FILLED' if st == '2' else 'PARTIAL'} | id={mid} qty={fq}",
+                f"✅ [FILL] {'FILLED' if next_state == OrderStatus.FILLED.value else 'PARTIAL'} | id={mid} qty={fq}",
                 flush=True,
             )
 
@@ -533,16 +547,26 @@ class OMSApp(fix.Application):
                 er.setField(fix.StringField(1, str(tr.get("client_id"))))
             er.setField(
                 fix.ExecType(
-                    {"0": "0", "1": "F", "2": "F", "4": "4", "5": "5", "8": "8"}.get(
-                        str(status), str(status)
-                    )
+                    {
+                        OrderStatus.NEW.value: fix.ExecType_NEW,
+                        OrderStatus.PARTIALLY_FILLED.value: fix.ExecType_TRADE,
+                        OrderStatus.FILLED.value: fix.ExecType_TRADE,
+                        OrderStatus.CANCELED.value: fix.ExecType_CANCELED,
+                        OrderStatus.REPLACED.value: fix.ExecType_REPLACE,
+                        OrderStatus.REJECTED.value: fix.ExecType_REJECTED
+                    }.get(str(status), str(status))
                 )
             )
             er.setField(
                 fix.OrdStatus(
-                    {"0": "0", "1": "1", "2": "2", "4": "4", "5": "0", "8": "8"}.get(
-                        str(status), str(status)
-                    )
+                    {
+                        OrderStatus.NEW.value: fix.OrdStatus_NEW,
+                        OrderStatus.PARTIALLY_FILLED.value: fix.OrdStatus_PARTIALLY_FILLED,
+                        OrderStatus.FILLED.value: fix.OrdStatus_FILLED,
+                        OrderStatus.CANCELED.value: fix.OrdStatus_CANCELED,
+                        OrderStatus.REPLACED.value: fix.OrdStatus_NEW, # Replaced orders are active/new
+                        OrderStatus.REJECTED.value: fix.OrdStatus_REJECTED
+                    }.get(str(status), str(status))
                 )
             )
             if orig_clord_id:
@@ -561,12 +585,12 @@ class OMSApp(fix.Application):
                 er.addGroup(grp)
             fix.Session.sendToTarget(er, target)
             label = {
-                "0": "ACK (NEW)",
-                "1": "PARTIAL FILL",
-                "2": "FULL FILL",
-                "4": "CANCELLED",
-                "5": "REPLACED",
-                "8": "REJECTED",
+                OrderStatus.NEW.value: "ACK (NEW)",
+                OrderStatus.PARTIALLY_FILLED.value: "PARTIALLY FILL",
+                OrderStatus.FILLED.value: "FULL FILL",
+                OrderStatus.CANCELED.value: "CANCELLED",
+                OrderStatus.REPLACED.value: "REPLACED",
+                OrderStatus.REJECTED.value: "REJECTED",
             }.get(str(status), status)
             logger.info("📡 [REPORT] %s | ClOrdID=%s", label, clord_id)
         except Exception as e:

@@ -3,13 +3,13 @@ from enum import Enum
 
 
 class OrderStatus(Enum):
-    PENDING = "PENDING"
-    NEW = "NEW"
-    PARTIALLY_FILLED = "PARTIALLY_FILLED"
-    FILLED = "FILLED"
-    CANCELED = "CANCELED"
-    REPLACED = "REPLACED"
-    REJECTED = "REJECTED"
+    PENDING = "P"
+    NEW = "0"
+    PARTIALLY_FILLED = "1"
+    FILLED = "2"
+    CANCELED = "4"
+    REPLACED = "5"
+    REJECTED = "8"
 
 
 @dataclass
@@ -27,14 +27,15 @@ class Order:
 
 
 class OrderStateMachine:
-    # Validates FIX order status transitions (0=New, 1=Partial, 2=Filled, 4=Cancelled, 5=Replaced, 8=Rejected)
+    # Validates FIX order status transitions
     TRANSITIONS = {
-        "0": ["1", "2", "4", "5"],
-        "1": ["1", "2", "4"],
-        "2": [],
-        "4": [],
-        "5": ["1", "2", "4", "5"],
-        "8": [],
+        OrderStatus.PENDING.value: [OrderStatus.NEW.value, OrderStatus.REJECTED.value],
+        OrderStatus.NEW.value: [OrderStatus.PARTIALLY_FILLED.value, OrderStatus.FILLED.value, OrderStatus.CANCELED.value, OrderStatus.REPLACED.value],
+        OrderStatus.PARTIALLY_FILLED.value: [OrderStatus.PARTIALLY_FILLED.value, OrderStatus.FILLED.value, OrderStatus.CANCELED.value],
+        OrderStatus.FILLED.value: [],
+        OrderStatus.CANCELED.value: [],
+        OrderStatus.REPLACED.value: [OrderStatus.PARTIALLY_FILLED.value, OrderStatus.FILLED.value, OrderStatus.CANCELED.value, OrderStatus.REPLACED.value],
+        OrderStatus.REJECTED.value: [],
     }
 
     @classmethod
@@ -45,4 +46,4 @@ class OrderStateMachine:
 
     @classmethod
     def is_terminal(cls, state: str) -> bool:
-        return state in ("2", "4", "8")
+        return state in (OrderStatus.FILLED.value, OrderStatus.CANCELED.value, OrderStatus.REJECTED.value)

@@ -26,9 +26,10 @@ python-fix-oms/
 │   ├── client2.cfg                 ← Initiator config for CLIENT2
 │   └── FIX44.XML                   ← FIX 4.4 Data Dictionary
 ├── core/
-│   ├── order_manager.py            ← Repository layer — SQLite persistence
+│   ├── order_manager.py            ← Repository layer — SQLite persistence with RLock
+│   ├── position_service.py         ← Business logic — P&L and position math
 │   ├── risk_engine.py              ← Pre-trade validation & Fat Finger checks
-│   └── models.py                   ← Data models and status enums
+│   └── models.py                   ← OrderStateMachine and Status Enums
 ├── fix_engine/
 │   ├── oms_app.py                  ← Main FIX application (Message Routing)
 │   ├── matching_engine.py          ← Order matching and fill logic
@@ -90,9 +91,12 @@ Risk Engine Check (Qty, Price, Notional, Fat Finger)
                                ↓
                       Matching Engine processes order
                       ↓ [Match Found]       ↓ [No Match]
-                 35=8 FILL sent         Order queued in book
-                 Position updated       (Wait for counterpart)
-                 Market Data updated
+                  35=8 FILL sent         Order queued in book
+                  Position updated       (Wait for counterpart)
+                  Market Data updated
+
+> [!TIP]
+> **State Machine**: Every transition is now validated by `OrderStateMachine` to prevent illegal status changes (e.g., canceling a filled order).
 ```
 
 ---
@@ -120,7 +124,7 @@ The system uses **SQLite** with WAL mode for high-performance persistence.
 | `market_data` | Live snapshot of symbol statistics (BBO, VWAP, High/Low) |
 
 > [!NOTE]
-> **Performance Choice**: This system avoids heavy ORMs like SQLAlchemy. Raw SQL + WAL mode provides significantly lower latency, critical for institutional matching engines.
+> **Performance Choice**: This system avoids heavy ORMs like SQLAlchemy. Raw SQL + WAL mode and **Recursive Locks (RLock)** provide high-performance thread safety.
 
 ---
 
