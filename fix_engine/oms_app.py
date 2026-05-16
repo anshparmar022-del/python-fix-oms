@@ -596,7 +596,7 @@ class OMSApp(fix.Application):
                 OrderStatus.REPLACED.value: "REPLACED",
                 OrderStatus.REJECTED.value: "REJECTED",
             }.get(str(status), status)
-            logger.info("📡 [REPORT] %s | ClOrdID=%s", label, clord_id)
+            logger.info("📬 [REPORT] %s | ClOrdID=%s", label, clord_id)
         except Exception as e:
             logger.exception("_send_report failed: %s", e)
 
