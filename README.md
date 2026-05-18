@@ -38,7 +38,25 @@ python-fix-oms/
 ├── scripts/
 │   └── view_positions.py           ← Terminal utility to monitor live P&L
 ```
-
+```mermaid
+graph TD
+    Client["Client (Trading Desk)"] -->|"TCP: 35=D New Order"| App["oms_app.py (Session)"]
+    App --> Mapper["fix_mapper.py (Parser)"]
+    Mapper --> Manager["order_manager.py (Router)"]
+    Manager --> Risk["risk_engine.py (Risk)"]
+    Risk -->|"Approved"| Engine["matching_engine.py (FIFO)"]
+    Engine --> Pos["position_service.py (P&L)"]
+    Engine --> DB[("SQLite DB (History)")]
+    
+    %% Return Path for Execution Reports
+    Engine -.->|"35=8 Execution Report"| Manager
+    Manager -.-> Mapper
+    Mapper -.-> App
+    App -.->|"TCP: 35=8"| Client
+    
+    style Engine fill:#2c3e50,stroke:#f39c12,stroke-width:2px,color:#fff
+    style DB fill:#34495e,stroke:#3498db,stroke-width:2px,color:#fff
+```
 ---
 
 ## 🚀 Setup & Execution
